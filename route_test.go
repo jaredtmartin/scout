@@ -11,29 +11,29 @@ import (
 	"github.com/jaredtmartin/scout"
 )
 
-func handleGetDog(w http.ResponseWriter, r *http.Request) scout.ResponseType {
+func handleGetDog(w http.ResponseWriter, r *http.Request) scout.Response {
 	return scout.Content(fido.String("Hello, World! Let's Get a Dog!"), fido.String("Here's some more content!"))
 }
-func handlePostDog(w http.ResponseWriter, r *http.Request) scout.ResponseType {
+func handlePostDog(w http.ResponseWriter, r *http.Request) scout.Response {
 	return scout.Content(fido.String("Hello, World! Let's Post a Dog!"))
 }
-func handleDeleteDog(w http.ResponseWriter, r *http.Request) scout.ResponseType {
+func handleDeleteDog(w http.ResponseWriter, r *http.Request) scout.Response {
 	return scout.Content(fido.String("Hello, World! Let's Delete a Dog!"))
 }
-func handlePutDog(w http.ResponseWriter, r *http.Request) scout.ResponseType {
+func handlePutDog(w http.ResponseWriter, r *http.Request) scout.Response {
 	return scout.Content(fido.String("Hello, World! Let's Put a Dog!"))
 }
-func handlePatchDog(w http.ResponseWriter, r *http.Request) scout.ResponseType {
+func handlePatchDog(w http.ResponseWriter, r *http.Request) scout.Response {
 	return scout.Content(fido.String("Hello, World! Let's Patch a Dog!"))
 }
-func handleSimpleError(w http.ResponseWriter, r *http.Request) scout.ResponseType {
+func handleSimpleError(w http.ResponseWriter, r *http.Request) scout.Response {
 	return scout.Error(fmt.Errorf("Something went wrong!"))
 }
-func handleDetailedError(w http.ResponseWriter, r *http.Request) scout.ResponseType {
+func handleDetailedError(w http.ResponseWriter, r *http.Request) scout.Response {
 	err := fmt.Errorf("Details about the error.")
 	return scout.Error(fmt.Errorf("Something went wrong!: %w", err))
 }
-func handleRedirect(w http.ResponseWriter, r *http.Request) scout.ResponseType {
+func handleRedirect(w http.ResponseWriter, r *http.Request) scout.Response {
 	return scout.Redirect("/redirected")
 }
 
@@ -86,7 +86,7 @@ func testRoute(server *httptest.Server, method, path string, expected ExpectedRe
 func layout(w http.ResponseWriter, r *http.Request, elements ...fido.Element) fido.Element {
 	return fido.NewElement("layout").Children(elements...)
 }
-func errorPage(err scout.ResponseType) fido.Element {
+func errorPage(err scout.Response) fido.Element {
 	// get everything before the : in the error message
 	return fido.NewElement("div").Children(
 		fido.NewElement("msg").Text(err.ErrPublic()),

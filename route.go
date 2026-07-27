@@ -11,78 +11,81 @@ import (
 )
 
 type Layout func(http.ResponseWriter, *http.Request, ...fido.Element) fido.Element
-type Handler func(http.ResponseWriter, *http.Request) ResponseType
+type Handler func(http.ResponseWriter, *http.Request) Response
+type RenderFlash func(flash *Flash) fido.Element
 type PathType map[string]Handler
 type BranchType map[string]*PathType
-type ErrorPageType func(err ResponseType) fido.Element
-type ResponseType interface {
-	Error(err error) *ResponseStruct
-	Content(content ...fido.Element) *ResponseStruct
-	Success(msg string) *ResponseStruct
-	Header(key, value string) *ResponseStruct
-	Warning(msg string) *ResponseStruct
-	Info(msg string) *ResponseStruct
-	Redirect(url string) *ResponseStruct
-	PushUrl(url string) *ResponseStruct
-	Back() *ResponseStruct
-	ReplaceUrl(url string) *ResponseStruct
-	Err() error
-	ErrPublic() string
-	ErrDetail() string
-	GetContent() []fido.Element
-	Wrap(msg string) *ResponseStruct
-}
-type ResponseStruct struct {
+type ErrorPageType func(err Response) fido.Element
+
+//	type Response interface {
+//		Error(err error) *Response
+//		Content(content ...fido.Element) *Response
+//		Success(msg string) *Response
+//		Header(key, value string) *Response
+//		Warning(msg string) *Response
+//		Info(msg string) *Response
+//		Redirect(url string) *Response
+//		PushUrl(url string) *Response
+//		Back() *Response
+//		ReplaceUrl(url string) *Response
+//		Err() error
+//		ErrPublic() string
+//		ErrDetail() string
+//		GetContent() []fido.Element
+//		Wrap(msg string) *Response
+//	}
+type Response struct {
 	content  []fido.Element
 	headers  map[string]string
 	err      error
 	redirect string
+	flash    []FlashCollection
 }
 
-func (r *ResponseStruct) Error(err error) *ResponseStruct {
+func (r Response) Error(err error) Response {
 	r.err = err
 	return r
 }
-func (r *ResponseStruct) Content(content ...fido.Element) *ResponseStruct {
+func (r Response) Content(content ...fido.Element) Response {
 	r.content = content
 	return r
 }
-func (r *ResponseStruct) Success(msg string) *ResponseStruct {
+func (r Response) Success(msg string) Response {
 	r.headers["HX-Success"] = msg
 	return r
 }
-func (r *ResponseStruct) Header(key, value string) *ResponseStruct {
+func (r Response) Header(key, value string) Response {
 	r.headers[key] = value
 	return r
 }
-func (r *ResponseStruct) Warning(msg string) *ResponseStruct {
+func (r Response) Warning(msg string) Response {
 	r.headers["HX-Warning"] = msg
 	return r
 }
-func (r *ResponseStruct) Info(msg string) *ResponseStruct {
+func (r Response) Info(msg string) Response {
 	r.headers["HX-Info"] = msg
 	return r
 }
-func (r *ResponseStruct) Redirect(url string) *ResponseStruct {
+func (r Response) Redirect(url string) Response {
 	r.redirect = url
 	return r
 }
-func (r *ResponseStruct) Back() *ResponseStruct {
+func (r Response) Back() Response {
 	r.headers["HX-Back"] = "true"
 	return r
 }
-func (r *ResponseStruct) PushUrl(url string) *ResponseStruct {
+func (r Response) PushUrl(url string) Response {
 	r.headers["HX-Push-Url"] = url
 	return r
 }
-func (r *ResponseStruct) ReplaceUrl(url string) *ResponseStruct {
+func (r Response) ReplaceUrl(url string) Response {
 	r.headers["HX-Replace-Url"] = url
 	return r
 }
-func (r *ResponseStruct) Err() error {
+func (r Response) Err() error {
 	return r.err
 }
-func (r *ResponseStruct) ErrPublic() string {
+func (r Response) ErrPublic() string {
 	if r.err == nil {
 		return ""
 	}
@@ -92,7 +95,7 @@ func (r *ResponseStruct) ErrPublic() string {
 	}
 	return strings.TrimSpace(parts[0])
 }
-func (r *ResponseStruct) ErrDetail() string {
+func (r Response) ErrDetail() string {
 	if r.err == nil {
 		return ""
 	}
@@ -103,36 +106,36 @@ func (r *ResponseStruct) ErrDetail() string {
 	// join all the parts after the first one with :
 	return strings.TrimSpace(strings.Join(parts[1:], ": "))
 }
-func (r *ResponseStruct) GetContent() []fido.Element {
+func (r Response) GetContent() []fido.Element {
 	return r.content
 }
 
 // Error(err).WrapErr("This dog has wandered off.")
-func (r *ResponseStruct) Wrap(msg string) *ResponseStruct {
+func (r Response) Wrap(msg string) Response {
 	r.err = fmt.Errorf("%s: %w", msg, r.err)
 	return r
 }
 
-func Response() *ResponseStruct {
-	return &ResponseStruct{
+func Respond() Response {
+	return Response{
 		headers: make(map[string]string),
 	}
 }
-func Content(content ...fido.Element) ResponseType {
-	return Response().Content(content...)
+func Content(content ...fido.Element) Response {
+	return Respond().Content(content...)
 }
-func Error(err error) ResponseType {
-	res := Response().Error(err)
+func Error(err error) Response {
+	res := Respond().Error(err)
 	return res
 }
-func Success(msg string) ResponseType {
-	return Response().Success(msg)
+func Success(msg string) Response {
+	return Respond().Success(msg)
 }
-func Redirect(url string) ResponseType {
-	return Response().Redirect(url)
+func Redirect(url string) Response {
+	return Respond().Redirect(url)
 }
-func Back() ResponseType {
-	return Response().Back()
+func Back() Response {
+	return Respond().Back()
 }
 
 type Router struct {
@@ -217,10 +220,10 @@ func (r *PathType) Patch(handler Handler) *PathType {
 func pathHandler(w http.ResponseWriter, r *http.Request, router *Router, methods PathType) {
 	if handler, ok := (methods)[r.Method]; ok && handler != nil {
 		response := handler(w, r)
-		for key, value := range response.(*ResponseStruct).headers {
+		for key, value := range response.headers {
 			w.Header().Set(key, value)
 		}
-		redirect := response.(*ResponseStruct).redirect
+		redirect := response.redirect
 		if redirect != "" {
 			// If the request is not an HTMX request, we want to do a standard http redirect
 			if r.Header.Get("HX-Request") == "" {
