@@ -1,4 +1,4 @@
-module github.com/jaredtmartin/scout.git
+module github.com/jaredtmartin/scout
 
 go 1.25.0
 

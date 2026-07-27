@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/jaredtmartin/fido"
-	"github.com/jaredtmartin/scout.git"
+	"github.com/jaredtmartin/scout"
 )
 
 func handleGetDog(w http.ResponseWriter, r *http.Request) scout.ResponseType {
