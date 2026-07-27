@@ -12,34 +12,17 @@ import (
 
 type Layout func(http.ResponseWriter, *http.Request, ...fido.Element) fido.Element
 type Handler func(http.ResponseWriter, *http.Request) Response
-type RenderFlash func(flash *Flash) fido.Element
+type FlashRenderer func(flash Flash, i int) fido.Element
 type PathType map[string]Handler
 type BranchType map[string]*PathType
 type ErrorPageType func(err Response) fido.Element
 
-//	type Response interface {
-//		Error(err error) *Response
-//		Content(content ...fido.Element) *Response
-//		Success(msg string) *Response
-//		Header(key, value string) *Response
-//		Warning(msg string) *Response
-//		Info(msg string) *Response
-//		Redirect(url string) *Response
-//		PushUrl(url string) *Response
-//		Back() *Response
-//		ReplaceUrl(url string) *Response
-//		Err() error
-//		ErrPublic() string
-//		ErrDetail() string
-//		GetContent() []fido.Element
-//		Wrap(msg string) *Response
-//	}
 type Response struct {
 	content  []fido.Element
 	headers  map[string]string
 	err      error
 	redirect string
-	flash    []FlashCollection
+	flashes  *Flashes
 }
 
 func (r Response) Error(err error) Response {
@@ -50,20 +33,25 @@ func (r Response) Content(content ...fido.Element) Response {
 	r.content = content
 	return r
 }
-func (r Response) Success(msg string) Response {
-	r.headers["HX-Success"] = msg
+func (r Response) Notify(msg string, urgency Urgency, expiry ...int) Response {
+	var expiryInt int = 5000
+	if len(expiry) > 0 {
+		expiryInt = expiry[0]
+	}
+	r.flashes.Add(msg, urgency, expiryInt)
 	return r
+}
+func (r Response) Success(msg string, expiry ...int) Response {
+	return r.Notify(msg, SuccessUrgency, expiry...)
+}
+func (r Response) Info(msg string, expiry ...int) Response {
+	return r.Notify(msg, InfoUrgency, expiry...)
+}
+func (r Response) Warning(msg string, expiry ...int) Response {
+	return r.Notify(msg, WarningUrgency, expiry...)
 }
 func (r Response) Header(key, value string) Response {
 	r.headers[key] = value
-	return r
-}
-func (r Response) Warning(msg string) Response {
-	r.headers["HX-Warning"] = msg
-	return r
-}
-func (r Response) Info(msg string) Response {
-	r.headers["HX-Info"] = msg
 	return r
 }
 func (r Response) Redirect(url string) Response {
@@ -115,10 +103,10 @@ func (r Response) Wrap(msg string) Response {
 	r.err = fmt.Errorf("%s: %w", msg, r.err)
 	return r
 }
-
 func Respond() Response {
 	return Response{
 		headers: make(map[string]string),
+		flashes: NewFlash(),
 	}
 }
 func Content(content ...fido.Element) Response {
@@ -139,22 +127,24 @@ func Back() Response {
 }
 
 type Router struct {
-	layout    Layout
-	routes    BranchType
-	errorPage ErrorPageType
-	Mux       *http.ServeMux
-	verbose   bool
+	layout        Layout
+	routes        BranchType
+	errorPage     ErrorPageType
+	flashRenderer FlashRenderer
+	Mux           *http.ServeMux
+	verbose       bool
 }
 
 func Branch() BranchType {
 	return make(BranchType)
 }
-func New(mux *http.ServeMux, layout Layout, errorPage ErrorPageType) *Router {
+func New(mux *http.ServeMux, layout Layout, errorPage ErrorPageType, flashRenderer FlashRenderer) *Router {
 	return &Router{
-		layout:    layout,
-		routes:    Branch(),
-		errorPage: errorPage,
-		Mux:       mux,
+		layout:        layout,
+		routes:        Branch(),
+		errorPage:     errorPage,
+		flashRenderer: flashRenderer,
+		Mux:           mux,
 	}
 }
 
@@ -178,7 +168,8 @@ func (router *Router) Path(path string) *PathType {
 		router.routes[path] = &PathType{}
 	}
 	router.Mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		pathHandler(w, r, router, *router.routes[path])
+		renderedFlashes := RenderFlashes(router.flashRenderer, w, r)
+		pathHandler(w, r, router, *router.routes[path], renderedFlashes)
 	})
 	if router.verbose {
 		log.Println("Added route:", urlFromPath(path))
@@ -217,12 +208,13 @@ func (r *PathType) Patch(handler Handler) *PathType {
 	return r
 }
 
-func pathHandler(w http.ResponseWriter, r *http.Request, router *Router, methods PathType) {
+func pathHandler(w http.ResponseWriter, r *http.Request, router *Router, methods PathType, renderedFlashes fido.Element) {
 	if handler, ok := (methods)[r.Method]; ok && handler != nil {
 		response := handler(w, r)
 		for key, value := range response.headers {
 			w.Header().Set(key, value)
 		}
+		response.flashes.Save(w)
 		redirect := response.redirect
 		if redirect != "" {
 			// If the request is not an HTMX request, we want to do a standard http redirect
@@ -244,9 +236,11 @@ func pathHandler(w http.ResponseWriter, r *http.Request, router *Router, methods
 				return
 			}
 			router.layout(w, r, router.errorPage(response)).Send(w)
+			// renderedFlashes.Send(w)
 			return
 		}
-		router.layout(w, r, fido.Fragment(response.GetContent()...)).Send(w)
+		content := append([]fido.Element{renderedFlashes}, response.GetContent()...)
+		router.layout(w, r, content...).Send(w)
 		return
 	}
 	http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)

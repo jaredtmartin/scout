@@ -2,7 +2,7 @@ module github.com/jaredtmartin/scout
 
 go 1.25.0
 
-require github.com/jaredtmartin/fido v1.0.3
+require github.com/jaredtmartin/fido v1.0.4
 
 require (
 	golang.org/x/exp v0.0.0-20260718201538-764159d718ef // indirect

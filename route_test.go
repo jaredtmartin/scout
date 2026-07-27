@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/jaredtmartin/fido"
@@ -35,6 +37,9 @@ func handleDetailedError(w http.ResponseWriter, r *http.Request) scout.Response 
 }
 func handleRedirect(w http.ResponseWriter, r *http.Request) scout.Response {
 	return scout.Redirect("/redirected")
+}
+func handleFlashMessages(w http.ResponseWriter, r *http.Request) scout.Response {
+	return scout.Content(fido.String("body content")).Success("success flash").Info("info flash").Warning("warning flash")
 }
 
 //	func handleErrorWithContent(w http.ResponseWriter, r *http.Request) Response {
@@ -86,6 +91,9 @@ func testRoute(server *httptest.Server, method, path string, expected ExpectedRe
 func layout(w http.ResponseWriter, r *http.Request, elements ...fido.Element) fido.Element {
 	return fido.NewElement("layout").Children(elements...)
 }
+func flashRenderer(flash scout.Flash, i int) fido.Element {
+	return fido.Div("notification").Text(flash.Message).Class(string(flash.Urgency))
+}
 func errorPage(err scout.Response) fido.Element {
 	// get everything before the : in the error message
 	return fido.NewElement("div").Children(
@@ -96,7 +104,7 @@ func errorPage(err scout.Response) fido.Element {
 
 func TestGet(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, errorPage)
+	router := scout.New(mux, layout, errorPage, flashRenderer)
 	router.Path("/dog").Get(handleGetDog)
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -118,7 +126,7 @@ func TestGet(t *testing.T) {
 }
 func TestMultiMethod(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, errorPage)
+	router := scout.New(mux, layout, errorPage, flashRenderer)
 	router.Path("/dog").
 		Get(handleGetDog).
 		Post(handlePostDog).
@@ -161,7 +169,7 @@ func TestMultiMethod(t *testing.T) {
 }
 func TestPost(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, errorPage)
+	router := scout.New(mux, layout, errorPage, flashRenderer)
 	router.Path("/dog").Post(handlePostDog)
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -183,7 +191,7 @@ func TestPost(t *testing.T) {
 }
 func TestErrors(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, errorPage)
+	router := scout.New(mux, layout, errorPage, flashRenderer)
 	router.Path("/err").Get(handleSimpleError)
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -202,7 +210,7 @@ func TestErrors(t *testing.T) {
 }
 func TestStandardRedirect(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, errorPage)
+	router := scout.New(mux, layout, errorPage, flashRenderer)
 	router.Path("/redirect").Get(handleRedirect)
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -216,7 +224,7 @@ func TestStandardRedirect(t *testing.T) {
 }
 func TestHtmxRedirect(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, errorPage)
+	router := scout.New(mux, layout, errorPage, flashRenderer)
 	router.Path("/redirect").Get(handleRedirect)
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -233,7 +241,7 @@ func TestHtmxRedirect(t *testing.T) {
 }
 func TestHtmxRedirectToSamePath(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, errorPage)
+	router := scout.New(mux, layout, errorPage, flashRenderer)
 	router.Path("/redirect").Get(handleRedirect)
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -247,4 +255,49 @@ func TestHtmxRedirectToSamePath(t *testing.T) {
 			"HX-Request": "true",
 		},
 	}, t)
+}
+
+func TestFlashMessages(t *testing.T) {
+	mux := http.NewServeMux()
+	router := scout.New(mux, layout, errorPage, flashRenderer)
+	router.Path("/flash").Get(handleFlashMessages)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("failed to create cookie jar: %v", err)
+	}
+	client := &http.Client{Jar: jar}
+
+	firstResp, err := client.Get(server.URL + "/flash")
+	if err != nil {
+		t.Fatalf("failed to perform first request: %v", err)
+	}
+	defer firstResp.Body.Close()
+
+	if firstResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status code %d on first request, got %d", http.StatusOK, firstResp.StatusCode)
+	}
+
+	secondResp, err := client.Get(server.URL + "/flash")
+	if err != nil {
+		t.Fatalf("failed to perform second request: %v", err)
+	}
+	defer secondResp.Body.Close()
+
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(secondResp.Body); err != nil {
+		t.Fatalf("failed to read second response body: %v", err)
+	}
+
+	body := buf.String()
+	for _, message := range []string{"success flash", "info flash", "warning flash"} {
+		if !strings.Contains(body, message) {
+			t.Fatalf("expected response body to contain %q, got %q", message, body)
+		}
+	}
+	if secondResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status code %d on second request, got %d", http.StatusOK, secondResp.StatusCode)
+	}
 }
