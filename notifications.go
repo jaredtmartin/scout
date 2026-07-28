@@ -14,10 +14,10 @@ const FlashCookieName = "flash"
 type Urgency string
 
 const (
-	SuccessUrgency Urgency = "Success"
-	ErrorUrgency   Urgency = "Error"
-	InfoUrgency    Urgency = "Info"
-	WarningUrgency Urgency = "Warning"
+	SuccessUrgency Urgency = "success"
+	ErrorUrgency   Urgency = "error"
+	InfoUrgency    Urgency = "info"
+	WarningUrgency Urgency = "warning"
 )
 
 type Flash struct {
@@ -31,11 +31,11 @@ type Flashes []Flash
 func NewFlash() *Flashes {
 	return &Flashes{}
 }
-func RenderFlashes(renderer FlashRenderer, w http.ResponseWriter, r *http.Request) fido.Element {
-	flashes := LoadFlashes(w, r)
+func renderFlashes(renderer FlashRenderer, w http.ResponseWriter, r *http.Request) fido.Element {
+	flashes := loadFlashes(w, r)
 	return fido.For(*flashes, renderer)
 }
-func LoadFlashes(w http.ResponseWriter, r *http.Request) *Flashes {
+func loadFlashes(w http.ResponseWriter, r *http.Request) *Flashes {
 	cookie, err := r.Cookie(FlashCookieName)
 	if err != nil {
 		if err == http.ErrNoCookie {

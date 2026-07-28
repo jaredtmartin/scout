@@ -1,11 +1,9 @@
 package scout
 
 import (
-	"fmt"
 	"log"
 	"maps"
 	"net/http"
-	"strings"
 
 	"github.com/jaredtmartin/fido"
 )
@@ -20,17 +18,19 @@ type ErrorPageType func(err Response) fido.Element
 type Response struct {
 	content  []fido.Element
 	headers  map[string]string
-	err      error
 	redirect string
 	flashes  *Flashes
+	code     int
 }
 
 func (r Response) Error(err error) Response {
-	r.err = err
+	r.flashes.Error(err.Error())
+	r.code = http.StatusInternalServerError
 	return r
 }
 func (r Response) Content(content ...fido.Element) Response {
 	r.content = content
+	r.code = http.StatusOK
 	return r
 }
 func (r Response) Notify(msg string, urgency Urgency, expiry ...int) Response {
@@ -70,43 +70,49 @@ func (r Response) ReplaceUrl(url string) Response {
 	r.headers["HX-Replace-Url"] = url
 	return r
 }
-func (r Response) Err() error {
-	return r.err
-}
-func (r Response) ErrPublic() string {
-	if r.err == nil {
-		return ""
-	}
-	parts := strings.Split(r.err.Error(), ":")
-	if len(parts) < 1 {
-		return ""
-	}
-	return strings.TrimSpace(parts[0])
-}
-func (r Response) ErrDetail() string {
-	if r.err == nil {
-		return ""
-	}
-	parts := strings.Split(r.err.Error(), ":")
-	if len(parts) < 2 {
-		return ""
-	}
-	// join all the parts after the first one with :
-	return strings.TrimSpace(strings.Join(parts[1:], ": "))
-}
+
+// func (r Response) Err() error {
+// 	return r.err
+// }
+
+//	func (r Response) ErrPublic() string {
+//		if r.err == nil {
+//			return ""
+//		}
+//		parts := strings.Split(r.err.Error(), ":")
+//		if len(parts) < 1 {
+//			return ""
+//		}
+//		return strings.TrimSpace(parts[0])
+//	}
+//
+//	func (r Response) ErrDetail() string {
+//		if r.err == nil {
+//			return ""
+//		}
+//		parts := strings.Split(r.err.Error(), ":")
+//		if len(parts) < 2 {
+//			return ""
+//		}
+//		// join all the parts after the first one with :
+//		return strings.TrimSpace(strings.Join(parts[1:], ": "))
+//	}
 func (r Response) GetContent() []fido.Element {
 	return r.content
 }
 
 // Error(err).WrapErr("This dog has wandered off.")
-func (r Response) Wrap(msg string) Response {
-	r.err = fmt.Errorf("%s: %w", msg, r.err)
-	return r
-}
+//
+//	func (r Response) Wrap(msg string) Response {
+//		r.err = fmt.Errorf("%s: %w", msg, r.err)
+//		return r
+//	}
 func Respond() Response {
 	return Response{
 		headers: make(map[string]string),
 		flashes: NewFlash(),
+		content: []fido.Element{fido.Div("content")},
+		code:    http.StatusOK,
 	}
 }
 func Content(content ...fido.Element) Response {
@@ -138,11 +144,10 @@ type Router struct {
 func Branch() BranchType {
 	return make(BranchType)
 }
-func New(mux *http.ServeMux, layout Layout, errorPage ErrorPageType, flashRenderer FlashRenderer) *Router {
+func New(mux *http.ServeMux, layout Layout, flashRenderer FlashRenderer) *Router {
 	return &Router{
 		layout:        layout,
 		routes:        Branch(),
-		errorPage:     errorPage,
 		flashRenderer: flashRenderer,
 		Mux:           mux,
 	}
@@ -168,8 +173,7 @@ func (router *Router) Path(path string) *PathType {
 		router.routes[path] = &PathType{}
 	}
 	router.Mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-		renderedFlashes := RenderFlashes(router.flashRenderer, w, r)
-		pathHandler(w, r, router, *router.routes[path], renderedFlashes)
+		pathHandler(w, r, router, *router.routes[path])
 	})
 	if router.verbose {
 		log.Println("Added route:", urlFromPath(path))
@@ -208,15 +212,17 @@ func (r *PathType) Patch(handler Handler) *PathType {
 	return r
 }
 
-func pathHandler(w http.ResponseWriter, r *http.Request, router *Router, methods PathType, renderedFlashes fido.Element) {
+func pathHandler(w http.ResponseWriter, r *http.Request, router *Router, methods PathType) {
 	if handler, ok := (methods)[r.Method]; ok && handler != nil {
 		response := handler(w, r)
 		for key, value := range response.headers {
 			w.Header().Set(key, value)
 		}
-		response.flashes.Save(w)
 		redirect := response.redirect
 		if redirect != "" {
+			if response.flashes != nil && len(*response.flashes) > 0 {
+				response.flashes.Save(w)
+			}
 			// If the request is not an HTMX request, we want to do a standard http redirect
 			if r.Header.Get("HX-Request") == "" {
 				http.Redirect(w, r, redirect, http.StatusSeeOther)
@@ -230,16 +236,21 @@ func pathHandler(w http.ResponseWriter, r *http.Request, router *Router, methods
 			}
 			return
 		}
-		if response.Err() != nil {
-			if r.Header.Get("HX-Request") != "" {
-				http.Error(w, response.ErrPublic(), http.StatusInternalServerError)
-				return
-			}
-			router.layout(w, r, router.errorPage(response)).Send(w)
-			// renderedFlashes.Send(w)
-			return
+		// If not redirecting, load flashes from cookie, merge with new flashes, and render them
+		cookieFlashes := loadFlashes(w, r)
+		var allFlashes Flashes
+		if cookieFlashes != nil {
+			allFlashes = append(allFlashes, *cookieFlashes...)
 		}
+		if response.flashes != nil {
+			allFlashes = append(allFlashes, *response.flashes...)
+		}
+		renderedFlashes := fido.For(allFlashes, router.flashRenderer)
+
 		content := append([]fido.Element{renderedFlashes}, response.GetContent()...)
+		if response.code != http.StatusOK {
+			w.WriteHeader(response.code)
+		}
 		router.layout(w, r, content...).Send(w)
 		return
 	}
