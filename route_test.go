@@ -59,11 +59,13 @@ func testRoute(server *httptest.Server, method, path string, expected ExpectedRe
 		}
 	}
 }
-func layout(w http.ResponseWriter, r *http.Request, elements ...fido.Element) fido.Element {
-	return fido.NewElement("layout").Children(elements...)
+func layout(w http.ResponseWriter, r *http.Request, flashes scout.Flashes, content []fido.Element) fido.Element {
+	return fido.NewElement("layout").
+		Add(fido.For(flashes, flashRenderer).Tag("flashes")).
+		Add(content...)
 }
 func flashRenderer(flash scout.Flash, i int) fido.Element {
-	return fido.Div("notification").Text(flash.Message).Class(string(flash.Urgency))
+	return fido.NewElement("flash").Text(flash.Message).Class(string(flash.Urgency))
 }
 
 // func errorPage(err scout.Response) fido.Element {
@@ -76,14 +78,14 @@ func flashRenderer(flash scout.Flash, i int) fido.Element {
 
 func TestGet(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, flashRenderer)
+	router := scout.New(mux, layout)
 	router.Path("/dog").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Content(fido.String("Hello, World! Let's Get a Dog!"), fido.String("Here's some more content!"))
 	})
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	testRoute(server, "GET", "/dog", ExpectedResponse{
-		Body:    "<layout>Hello, World! Let's Get a Dog!Here's some more content!</layout>",
+		Body:    "<layout><flashes></flashes>Hello, World! Let's Get a Dog!Here's some more content!</layout>",
 		Code:    http.StatusOK,
 		Headers: map[string]string{},
 	}, t)
@@ -100,7 +102,7 @@ func TestGet(t *testing.T) {
 }
 func TestMultiMethod(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, flashRenderer)
+	router := scout.New(mux, layout)
 	router.Path("/dog").
 		Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 			return scout.Content(fido.String("Hello, World! Let's Get a Dog!"), fido.String("Here's some more content!"))
@@ -121,27 +123,27 @@ func TestMultiMethod(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	testRoute(server, "GET", "/dog", ExpectedResponse{
-		Body:    "<layout>Hello, World! Let's Get a Dog!Here's some more content!</layout>",
+		Body:    `<layout><flashes></flashes>Hello, World! Let's Get a Dog!Here's some more content!</layout>`,
 		Code:    http.StatusOK,
 		Headers: map[string]string{},
 	}, t)
 	testRoute(server, "POST", "/dog", ExpectedResponse{
-		Body:    "<layout>Hello, World! Let's Post a Dog!</layout>",
+		Body:    `<layout><flashes></flashes>Hello, World! Let's Post a Dog!</layout>`,
 		Code:    http.StatusOK,
 		Headers: map[string]string{},
 	}, t)
 	testRoute(server, "DELETE", "/dog", ExpectedResponse{
-		Body:    "<layout>Hello, World! Let's Delete a Dog!</layout>",
+		Body:    `<layout><flashes></flashes>Hello, World! Let's Delete a Dog!</layout>`,
 		Code:    http.StatusOK,
 		Headers: map[string]string{},
 	}, t)
 	testRoute(server, "PUT", "/dog", ExpectedResponse{
-		Body:    "<layout>Hello, World! Let's Put a Dog!</layout>",
+		Body:    `<layout><flashes></flashes>Hello, World! Let's Put a Dog!</layout>`,
 		Code:    http.StatusOK,
 		Headers: map[string]string{},
 	}, t)
 	testRoute(server, "PATCH", "/dog", ExpectedResponse{
-		Body:    "<layout>Hello, World! Let's Patch a Dog!</layout>",
+		Body:    `<layout><flashes></flashes>Hello, World! Let's Patch a Dog!</layout>`,
 		Code:    http.StatusOK,
 		Headers: map[string]string{},
 	}, t)
@@ -153,14 +155,14 @@ func TestMultiMethod(t *testing.T) {
 }
 func TestPost(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, flashRenderer)
+	router := scout.New(mux, layout)
 	router.Path("/dog").Post(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Content(fido.String("Hello, World! Let's Post a Dog!"))
 	})
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	testRoute(server, "POST", "/dog", ExpectedResponse{
-		Body:    "<layout>Hello, World! Let's Post a Dog!</layout>",
+		Body:    `<layout><flashes></flashes>Hello, World! Let's Post a Dog!</layout>`,
 		Code:    http.StatusOK,
 		Headers: map[string]string{},
 	}, t)
@@ -177,7 +179,7 @@ func TestPost(t *testing.T) {
 }
 func TestErrors(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, flashRenderer)
+	router := scout.New(mux, layout)
 	router.Path("/err").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Error(fmt.Errorf("Something went wrong!"))
 	})
@@ -185,7 +187,7 @@ func TestErrors(t *testing.T) {
 	defer server.Close()
 
 	testRoute(server, "GET", "/err", ExpectedResponse{
-		Body:    "<layout><div class=\"error notification\">Something went wrong!</div><div class=\"content\"></div></layout>",
+		Body:    `<layout><flashes><flash class="error">Something went wrong!</flash></flashes><div class="content"></div></layout>`,
 		Code:    http.StatusInternalServerError,
 		Headers: map[string]string{},
 	}, t)
@@ -199,49 +201,49 @@ func TestErrors(t *testing.T) {
 }
 func TestSuccess(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, flashRenderer)
+	router := scout.New(mux, layout)
 	router.Path("/success").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Success("Success!")
 	})
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	testRoute(server, "GET", "/success", ExpectedResponse{
-		Body:    "<layout><div class=\"notification success\">Success!</div><div class=\"content\"></div></layout>",
+		Body:    `<layout><flashes><flash class="success">Success!</flash></flashes><div class="content"></div></layout>`,
 		Code:    http.StatusOK,
 		Headers: map[string]string{},
 	}, t)
 }
 func TestWarning(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, flashRenderer)
+	router := scout.New(mux, layout)
 	router.Path("/warning").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Respond().Warning("Warning message!")
 	})
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	testRoute(server, "GET", "/warning", ExpectedResponse{
-		Body:    "<layout><div class=\"notification warning\">Warning message!</div><div class=\"content\"></div></layout>",
+		Body:    `<layout><flashes><flash class="warning">Warning message!</flash></flashes><div class="content"></div></layout>`,
 		Code:    http.StatusOK,
 		Headers: map[string]string{},
 	}, t)
 }
 func TestInfo(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, flashRenderer)
+	router := scout.New(mux, layout)
 	router.Path("/info").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Respond().Info("Info message!")
 	})
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	testRoute(server, "GET", "/info", ExpectedResponse{
-		Body:    "<layout><div class=\"info notification\">Info message!</div><div class=\"content\"></div></layout>",
+		Body:    "<layout><flashes><flash class=\"info\">Info message!</flash></flashes><div class=\"content\"></div></layout>",
 		Code:    http.StatusOK,
 		Headers: map[string]string{},
 	}, t)
 }
 func TestMultipleFlashes(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, flashRenderer)
+	router := scout.New(mux, layout)
 	router.Path("/multiple").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Respond().
 			Success("First success!").
@@ -252,7 +254,7 @@ func TestMultipleFlashes(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	testRoute(server, "GET", "/multiple", ExpectedResponse{
-		Body:    "<layout><div class=\"notification success\">First success!</div><div class=\"notification warning\">A warning!</div><div class=\"info notification\">Some info!</div><div class=\"error notification\">And an error!</div><div class=\"content\"></div></layout>",
+		Body:    "<layout><flashes><flash class=\"success\">First success!</flash><flash class=\"warning\">A warning!</flash><flash class=\"info\">Some info!</flash><flash class=\"error\">And an error!</flash></flashes><div class=\"content\"></div></layout>",
 		Code:    http.StatusInternalServerError,
 		Headers: map[string]string{},
 	}, t)
@@ -262,7 +264,7 @@ func TestStandardRedirect(t *testing.T) {
 		return scout.Redirect("/redirected")
 	}
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, flashRenderer)
+	router := scout.New(mux, layout)
 	router.Path("/redirect").Get(handleRedirect)
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -279,7 +281,7 @@ func TestHtmxRedirect(t *testing.T) {
 		return scout.Redirect("/redirected")
 	}
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, flashRenderer)
+	router := scout.New(mux, layout)
 	router.Path("/redirect").Get(handleRedirect)
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -299,7 +301,7 @@ func TestHtmxRedirectToSamePath(t *testing.T) {
 		return scout.Redirect("/redirected")
 	}
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, flashRenderer)
+	router := scout.New(mux, layout)
 	router.Path("/redirect").Get(handleRedirect)
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -320,7 +322,7 @@ func TestFlashMessages(t *testing.T) {
 		return scout.Content(fido.String("body content")).Success("success flash").Info("info flash").Warning("warning flash")
 	}
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, flashRenderer)
+	router := scout.New(mux, layout)
 	router.Path("/flash").Get(handleFlashMessages)
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -365,7 +367,7 @@ func TestFlashMessages(t *testing.T) {
 
 func TestPostRedirectGet(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout, flashRenderer)
+	router := scout.New(mux, layout)
 
 	// POST handler that redirects and sets a success flash
 	router.Path("/submit").Post(func(w http.ResponseWriter, r *http.Request) scout.Response {
@@ -428,7 +430,7 @@ func TestPostRedirectGet(t *testing.T) {
 	}
 
 	body1 := buf1.String()
-	expectedFlashHtml := "<div class=\"notification success\">Submission successful!</div>"
+	expectedFlashHtml := "<flash class=\"success\">Submission successful!</flash>"
 	if !strings.Contains(body1, expectedFlashHtml) {
 		t.Errorf("expected first GET response body to contain %q, got %q", expectedFlashHtml, body1)
 	}

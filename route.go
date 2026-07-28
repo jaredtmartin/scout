@@ -8,9 +8,8 @@ import (
 	"github.com/jaredtmartin/fido"
 )
 
-type Layout func(http.ResponseWriter, *http.Request, ...fido.Element) fido.Element
+type Layout func(w http.ResponseWriter, r *http.Request, flashes Flashes, content []fido.Element) fido.Element
 type Handler func(http.ResponseWriter, *http.Request) Response
-type FlashRenderer func(flash Flash, i int) fido.Element
 type PathType map[string]Handler
 type BranchType map[string]*PathType
 type ErrorPageType func(err Response) fido.Element
@@ -133,23 +132,21 @@ func Back() Response {
 }
 
 type Router struct {
-	layout        Layout
-	routes        BranchType
-	errorPage     ErrorPageType
-	flashRenderer FlashRenderer
-	Mux           *http.ServeMux
-	verbose       bool
+	layout    Layout
+	routes    BranchType
+	errorPage ErrorPageType
+	Mux       *http.ServeMux
+	verbose   bool
 }
 
 func Branch() BranchType {
 	return make(BranchType)
 }
-func New(mux *http.ServeMux, layout Layout, flashRenderer FlashRenderer) *Router {
+func New(mux *http.ServeMux, layout Layout) *Router {
 	return &Router{
-		layout:        layout,
-		routes:        Branch(),
-		flashRenderer: flashRenderer,
-		Mux:           mux,
+		layout: layout,
+		routes: Branch(),
+		Mux:    mux,
 	}
 }
 
@@ -245,13 +242,10 @@ func pathHandler(w http.ResponseWriter, r *http.Request, router *Router, methods
 		if response.flashes != nil {
 			allFlashes = append(allFlashes, *response.flashes...)
 		}
-		renderedFlashes := fido.For(allFlashes, router.flashRenderer)
-
-		content := append([]fido.Element{renderedFlashes}, response.GetContent()...)
 		if response.code != http.StatusOK {
 			w.WriteHeader(response.code)
 		}
-		router.layout(w, r, content...).Send(w)
+		router.layout(w, r, allFlashes, response.GetContent()).Send(w)
 		return
 	}
 	http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)

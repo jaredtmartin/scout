@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
-
-	"github.com/jaredtmartin/fido"
 )
 
 const FlashCookieName = "flash"
@@ -30,10 +28,6 @@ type Flashes []Flash
 
 func NewFlash() *Flashes {
 	return &Flashes{}
-}
-func renderFlashes(renderer FlashRenderer, w http.ResponseWriter, r *http.Request) fido.Element {
-	flashes := loadFlashes(w, r)
-	return fido.For(*flashes, renderer)
 }
 func loadFlashes(w http.ResponseWriter, r *http.Request) *Flashes {
 	cookie, err := r.Cookie(FlashCookieName)
