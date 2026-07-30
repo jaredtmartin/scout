@@ -28,11 +28,16 @@ func Url(root string, id string, suffixes ...string) string {
 	return urlFromPath(Path(root, id, suffixes...))
 }
 func urlFromPath(path string) string {
-	host := os.Getenv("HOST")
+	hostname := os.Getenv("HOSTNAME")
+	port := os.Getenv("PORT")
 	env := os.Getenv("ENV")
 	protocol := "http"
 	if env == "production" {
 		protocol = "https"
+	}
+	host := hostname
+	if port != "" && port != "80" && port != "443" {
+		host = fmt.Sprintf("%s:%s", hostname, port)
 	}
 	return fmt.Sprintf("%s://%s%s", protocol, host, path)
 }
