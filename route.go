@@ -22,10 +22,9 @@ type Response struct {
 	code     int
 }
 
-func (r Response) Error(err error) Response {
-	r.flashes.Error(err.Error())
+func (r Response) Error(err error, expiry ...int) Response {
 	r.code = http.StatusInternalServerError
-	return r
+	return r.Notify(err.Error(), ErrorUrgency, expiry...)
 }
 func (r Response) Content(content ...fido.Element) Response {
 	r.content = content
@@ -33,7 +32,7 @@ func (r Response) Content(content ...fido.Element) Response {
 	return r
 }
 func (r Response) Notify(msg string, urgency Urgency, expiry ...int) Response {
-	var expiryInt int = 5000
+	var expiryInt int = defaultExpiry
 	if len(expiry) > 0 {
 		expiryInt = expiry[0]
 	}
@@ -70,42 +69,10 @@ func (r Response) ReplaceUrl(url string) Response {
 	return r
 }
 
-// func (r Response) Err() error {
-// 	return r.err
-// }
-
-//	func (r Response) ErrPublic() string {
-//		if r.err == nil {
-//			return ""
-//		}
-//		parts := strings.Split(r.err.Error(), ":")
-//		if len(parts) < 1 {
-//			return ""
-//		}
-//		return strings.TrimSpace(parts[0])
-//	}
-//
-//	func (r Response) ErrDetail() string {
-//		if r.err == nil {
-//			return ""
-//		}
-//		parts := strings.Split(r.err.Error(), ":")
-//		if len(parts) < 2 {
-//			return ""
-//		}
-//		// join all the parts after the first one with :
-//		return strings.TrimSpace(strings.Join(parts[1:], ": "))
-//	}
 func (r Response) GetContent() []fido.Element {
 	return r.content
 }
 
-// Error(err).WrapErr("This dog has wandered off.")
-//
-//	func (r Response) Wrap(msg string) Response {
-//		r.err = fmt.Errorf("%s: %w", msg, r.err)
-//		return r
-//	}
 func Respond() Response {
 	return Response{
 		headers: make(map[string]string),
@@ -117,12 +84,18 @@ func Respond() Response {
 func Content(content ...fido.Element) Response {
 	return Respond().Content(content...)
 }
-func Error(err error) Response {
+func Error(err error, expiry ...int) Response {
 	res := Respond().Error(err)
 	return res
 }
-func Success(msg string) Response {
-	return Respond().Success(msg)
+func Success(msg string, expiry ...int) Response {
+	return Respond().Success(msg, expiry...)
+}
+func Warning(msg string, expiry ...int) Response {
+	return Respond().Warning(msg, expiry...)
+}
+func Info(msg string, expiry ...int) Response {
+	return Respond().Info(msg, expiry...)
 }
 func Redirect(url string) Response {
 	return Respond().Redirect(url)

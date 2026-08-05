@@ -11,6 +11,7 @@ const FlashCookieName = "flash"
 
 type Urgency string
 
+const defaultExpiry = 5000
 const (
 	SuccessUrgency Urgency = "success"
 	ErrorUrgency   Urgency = "error"
@@ -46,30 +47,33 @@ func loadFlashes(w http.ResponseWriter, r *http.Request) *Flashes {
 	http.SetCookie(w, cookie)
 	return flash
 }
-func (f *Flashes) Add(msg string, ugency Urgency, expiry int) {
+func (f *Flashes) Add(msg string, ugency Urgency, expiry ...int) {
+	var expiryInt int = defaultExpiry
+	if len(expiry) > 0 {
+		expiryInt = expiry[0]
+	}
 	(*f) = append((*f), Flash{
 		Id:      time.Now().UnixNano(),
 		Message: msg,
 		Urgency: ugency,
-		Expiry:  expiry,
+		Expiry:  expiryInt,
 	})
 }
-func (f *Flashes) Success(msg string) {
-	f.Add(msg, SuccessUrgency, 0)
+func (f *Flashes) Success(msg string, expiry ...int) {
+	f.Add(msg, SuccessUrgency, expiry...)
 }
 
-func (f *Flashes) Error(msg string) {
-	f.Add(msg, ErrorUrgency, 0)
+func (f *Flashes) Error(msg string, expiry ...int) {
+	f.Add(msg, ErrorUrgency, expiry...)
 }
 
-func (f *Flashes) Info(msg string) {
-	f.Add(msg, InfoUrgency, 0)
+func (f *Flashes) Info(msg string, expiry ...int) {
+	f.Add(msg, InfoUrgency, expiry...)
 }
 
-func (f *Flashes) Warning(msg string) {
-	f.Add(msg, WarningUrgency, 0)
+func (f *Flashes) Warning(msg string, expiry ...int) {
+	f.Add(msg, WarningUrgency, expiry...)
 }
-
 func (f *Flashes) Save(w http.ResponseWriter) error {
 	encoded, err := f.Encode()
 	if err != nil {
