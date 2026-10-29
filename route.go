@@ -23,13 +23,15 @@ type ErrorPageType func(err Response) fido.Element
 type GuardFunc func(http.ResponseWriter, *http.Request) *Response
 
 // PathType holds the method handlers for a single path along with that path's
-// auth declaration. Every path must declare its access level via Public() or
-// Secured(); when the router is in strict auth mode (see Router.StrictAuth),
-// any request to an undeclared path is denied with a 403. This makes
-// "forgot to secure the endpoint" impossible to ship silently.
+// auth declaration. By default, every path requires authentication: unless a
+// path explicitly opts in via Public(), auth is enforced via its Secured(guard)
+// (or the router's DefaultGuard), and any undeclared path with no guard is
+// denied with HTTP 403 Forbidden. This makes "forgot to secure the endpoint"
+// impossible to ship silently.
 type PathType struct {
 	methods  map[string]Handler
 	guard    GuardFunc
+	public   bool
 	declared bool
 }
 
@@ -149,27 +151,28 @@ func Back() Response {
 }
 
 type Router struct {
-	layout    Layout
-	routes    BranchType
-	errorPage ErrorPageType
-	Mux       *http.ServeMux
-	verbose   bool
-	strict    bool
+	layout       Layout
+	routes       BranchType
+	errorPage    ErrorPageType
+	Mux          *http.ServeMux
+	verbose      bool
+	defaultGuard GuardFunc
 }
 
-// StrictAuth enables default-deny mode: any request to a path that has not
-// been declared with Public() or Secured() is rejected with a 403 and a
-// warning is logged. Call it once all routes are registered (start-up);
-// registrations that happen after the first served request may evade it.
-func (router *Router) StrictAuth() *Router {
-	router.strict = true
+// DefaultGuard sets a router-wide guard that is enforced on every route that
+// does not call Public() and does not provide its own Secured(guard).
+func (router *Router) DefaultGuard(guard GuardFunc) *Router {
+	router.defaultGuard = guard
 	return router
 }
 
 // CheckAuth returns an error listing every path that registered handlers but
-// never declared its access level via Public() or Secured(). Intended to be
-// called at start-up (or in a test) alongside StrictAuth as a fail-fast net.
+// never declared its access level via Public() or Secured() (when no router
+// DefaultGuard is set).
 func (router *Router) CheckAuth() error {
+	if router.defaultGuard != nil {
+		return nil
+	}
 	var undeclared []string
 	for path, p := range router.routes {
 		if p != nil && !p.declared {
@@ -181,15 +184,6 @@ func (router *Router) CheckAuth() error {
 	}
 	sort.Strings(undeclared)
 	return fmt.Errorf("%d route(s) with no auth declaration: %s", len(undeclared), strings.Join(undeclared, ", "))
-}
-
-// MustCheckAuth is CheckAuth but panics, for main.go / init-time use:
-//
-//	if err := router.CheckAuth(); err != nil { log.Fatal(err) } // or: router.MustCheckAuth()
-func (router *Router) MustCheckAuth() {
-	if err := router.CheckAuth(); err != nil {
-		log.Fatal(err)
-	}
 }
 
 func Branch() BranchType {
@@ -240,6 +234,7 @@ func (r *PathType) Map(route PathType) *PathType {
 // This is an affirmative declaration, not the absence of one.
 func (r *PathType) Public() *PathType {
 	r.declared = true
+	r.public = true
 	r.guard = nil
 	return r
 }
@@ -252,6 +247,7 @@ func (r *PathType) Secured(guard GuardFunc) *PathType {
 		log.Panicf("Secured() called with a nil guard for path with handler(s) %v", r.methods)
 	}
 	r.declared = true
+	r.public = false
 	r.guard = guard
 	return r
 }
@@ -312,15 +308,18 @@ func (router *Router) renderResponse(w http.ResponseWriter, r *http.Request, res
 }
 
 func pathHandler(w http.ResponseWriter, r *http.Request, router *Router, methods *PathType) {
-	// Default-deny: an undeclared path in strict mode is treated as a
-	// misconfiguration, not a feature, and is refused.
-	if router.strict && !methods.declared {
-		log.Printf("DENIED (undeclared route): %s %s — register with .Public() or .Secured(guard)", r.Method, r.URL.Path)
-		router.renderResponse(w, r, Respond().Forbidden("This page is not configured for public access."))
-		return
-	}
-	if methods.guard != nil {
-		if deny := methods.guard(w, r); deny != nil {
+	// Default-deny: unless a route explicitly opted into Public(), auth is enforced.
+	if !methods.public {
+		guard := methods.guard
+		if guard == nil {
+			guard = router.defaultGuard
+		}
+		if guard == nil {
+			log.Printf("DENIED (undeclared route): %s %s — register with .Public() or .Secured(guard)", r.Method, r.URL.Path)
+			router.renderResponse(w, r, Respond().Forbidden("This page is not configured for public access."))
+			return
+		}
+		if deny := guard(w, r); deny != nil {
 			router.renderResponse(w, r, *deny)
 			return
 		}

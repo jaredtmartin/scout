@@ -81,7 +81,7 @@ func TestGet(t *testing.T) {
 	router := scout.New(mux, layout)
 	router.Path("/dog").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Content(fido.String("Hello, World! Let's Get a Dog!"), fido.String("Here's some more content!"))
-	})
+	}).Public()
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	testRoute(server, "GET", "/dog", ExpectedResponse{
@@ -118,7 +118,8 @@ func TestMultiMethod(t *testing.T) {
 		}).
 		Patch(func(w http.ResponseWriter, r *http.Request) scout.Response {
 			return scout.Content(fido.String("Hello, World! Let's Patch a Dog!"))
-		})
+		}).
+		Public()
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -158,7 +159,7 @@ func TestPost(t *testing.T) {
 	router := scout.New(mux, layout)
 	router.Path("/dog").Post(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Content(fido.String("Hello, World! Let's Post a Dog!"))
-	})
+	}).Public()
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	testRoute(server, "POST", "/dog", ExpectedResponse{
@@ -182,7 +183,7 @@ func TestErrors(t *testing.T) {
 	router := scout.New(mux, layout)
 	router.Path("/err").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Error(fmt.Errorf("Something went wrong!"))
-	})
+	}).Public()
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
@@ -191,20 +192,13 @@ func TestErrors(t *testing.T) {
 		Code:    http.StatusInternalServerError,
 		Headers: map[string]string{},
 	}, t)
-	// router.Path("/err3").Get(handleDetailedError)
-	// testRoute(server, "GET", "/err3", ExpectedResponse{
-	// 	Body:    "<layout><div><msg>Something went wrong!</msg><detail>Details about the error.</detail></div></layout>",
-	// 	Code:    http.StatusOK,
-	// 	Headers: map[string]string{},
-	// }, t)
-
 }
 func TestSuccess(t *testing.T) {
 	mux := http.NewServeMux()
 	router := scout.New(mux, layout)
 	router.Path("/success").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Success("Success!")
-	})
+	}).Public()
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	testRoute(server, "GET", "/success", ExpectedResponse{
@@ -218,7 +212,7 @@ func TestWarning(t *testing.T) {
 	router := scout.New(mux, layout)
 	router.Path("/warning").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Respond().Warning("Warning message!")
-	})
+	}).Public()
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	testRoute(server, "GET", "/warning", ExpectedResponse{
@@ -232,7 +226,7 @@ func TestInfo(t *testing.T) {
 	router := scout.New(mux, layout)
 	router.Path("/info").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Respond().Info("Info message!")
-	})
+	}).Public()
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	testRoute(server, "GET", "/info", ExpectedResponse{
@@ -250,7 +244,7 @@ func TestMultipleFlashes(t *testing.T) {
 			Warning("A warning!").
 			Info("Some info!").
 			Error(fmt.Errorf("And an error!"))
-	})
+	}).Public()
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	testRoute(server, "GET", "/multiple", ExpectedResponse{
@@ -265,7 +259,7 @@ func TestStandardRedirect(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	router := scout.New(mux, layout)
-	router.Path("/redirect").Get(handleRedirect)
+	router.Path("/redirect").Get(handleRedirect).Public()
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	testRoute(server, "GET", "/redirect", ExpectedResponse{
@@ -282,7 +276,7 @@ func TestHtmxRedirect(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	router := scout.New(mux, layout)
-	router.Path("/redirect").Get(handleRedirect)
+	router.Path("/redirect").Get(handleRedirect).Public()
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	testRoute(server, "GET", "/redirect", ExpectedResponse{
@@ -302,7 +296,7 @@ func TestHtmxRedirectToSamePath(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	router := scout.New(mux, layout)
-	router.Path("/redirect").Get(handleRedirect)
+	router.Path("/redirect").Get(handleRedirect).Public()
 	server := httptest.NewServer(mux)
 	defer server.Close()
 	testRoute(server, "GET", "/redirect", ExpectedResponse{
@@ -323,7 +317,7 @@ func TestFlashMessages(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	router := scout.New(mux, layout)
-	router.Path("/flash").Get(handleFlashMessages)
+	router.Path("/flash").Get(handleFlashMessages).Public()
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
@@ -372,12 +366,12 @@ func TestPostRedirectGet(t *testing.T) {
 	// POST handler that redirects and sets a success flash
 	router.Path("/submit").Post(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Redirect("/result").Success("Submission successful!")
-	})
+	}).Public()
 
 	// GET handler that renders the page
 	router.Path("/result").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Respond()
-	})
+	}).Public()
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -508,7 +502,9 @@ func TestSecuredDeny(t *testing.T) {
 	}, t)
 }
 
-func TestStrictAuthUndeclaredRouteDenied(t *testing.T) {
+func TestUndeclaredRouteDeniedByDefault(t *testing.T) {
+	// Even without calling StrictAuth(), any route that does not call Public()
+	// or Secured(guard) is denied by default.
 	mux := http.NewServeMux()
 	router := scout.New(mux, layout)
 	router.Path("/declared-public").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
@@ -517,13 +513,12 @@ func TestStrictAuthUndeclaredRouteDenied(t *testing.T) {
 	router.Path("/declared-secret").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Content(fido.String("classified"))
 	}).Secured(func(w http.ResponseWriter, r *http.Request) *scout.Response {
-		resp := scout.Content(fido.String("denied by guard"))
+		resp := scout.Content(fido.String("denied by guard")).Forbidden("")
 		return &resp
 	})
 	router.Path("/forgot-to-declare").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Content(fido.String("should never render"))
 	})
-	router.StrictAuth()
 	if err := router.CheckAuth(); err == nil {
 		t.Error("expected CheckAuth to flag the undeclared route")
 	} else if !strings.Contains(err.Error(), "/forgot-to-declare") {
@@ -532,13 +527,13 @@ func TestStrictAuthUndeclaredRouteDenied(t *testing.T) {
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
-	// Declared routes still work.
+	// Declared public route works.
 	testRoute(server, "GET", "/declared-public", ExpectedResponse{
 		Body:    `<layout><flashes></flashes>open to everyone</layout>`,
 		Code:    http.StatusOK,
 		Headers: map[string]string{},
 	}, t)
-	// Undeclared route is denied without ever calling its handler.
+	// Undeclared route is denied by default without ever calling its handler.
 	testRoute(server, "GET", "/forgot-to-declare", ExpectedResponse{
 		Body:    `<layout><flashes><flash class="error">This page is not configured for public access.</flash></flashes><div class="content"></div></layout>`,
 		Code:    http.StatusForbidden,
@@ -546,31 +541,40 @@ func TestStrictAuthUndeclaredRouteDenied(t *testing.T) {
 	}, t)
 }
 
-func TestPublicRequiredWithoutStrict(t *testing.T) {
-	// Without StrictAuth, undeclared routes keep working (back-compat mode),
-	// but CheckAuth still reports them.
+func TestDefaultGuardEnforcedUnlessPublic(t *testing.T) {
 	mux := http.NewServeMux()
-	router := scout.New(mux, layout)
-	router.Path("/legacy").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
-		return scout.Content(fido.String("legacy behavior"))
+	router := scout.New(mux, layout).DefaultGuard(func(w http.ResponseWriter, r *http.Request) *scout.Response {
+		if r.Header.Get("X-Auth") != "valid" {
+			resp := scout.Respond().Forbidden("Auth required")
+			return &resp
+		}
+		return nil
 	})
-	router.Path("/declared").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
-		return scout.Content(fido.String("declared"))
+	router.Path("/protected-by-default").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
+		return scout.Content(fido.String("secret data"))
+	})
+	router.Path("/public-page").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
+		return scout.Content(fido.String("public data"))
 	}).Public()
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
-	testRoute(server, "GET", "/legacy", ExpectedResponse{
-		Body:    `<layout><flashes></flashes>legacy behavior</layout>`,
+	testRoute(server, "GET", "/public-page", ExpectedResponse{
+		Body:    `<layout><flashes></flashes>public data</layout>`,
 		Code:    http.StatusOK,
 		Headers: map[string]string{},
 	}, t)
-	err := router.CheckAuth()
-	if err == nil {
-		t.Error("expected CheckAuth to flag the undeclared route")
-	} else if !strings.Contains(err.Error(), "/legacy") || strings.Contains(err.Error(), "/declared") {
-		t.Errorf("unexpected CheckAuth result: %v", err)
-	}
+	testRoute(server, "GET", "/protected-by-default", ExpectedResponse{
+		Body:    `<layout><flashes><flash class="error">Auth required</flash></flashes><div class="content"></div></layout>`,
+		Code:    http.StatusForbidden,
+		Headers: map[string]string{},
+	}, t)
+	testRoute(server, "GET", "/protected-by-default", ExpectedResponse{
+		Body:           `<layout><flashes></flashes>secret data</layout>`,
+		Code:           http.StatusOK,
+		Headers:        map[string]string{},
+		RequestHeaders: map[string]string{"X-Auth": "valid"},
+	}, t)
 }
 
 func TestNotFound(t *testing.T) {
@@ -578,13 +582,13 @@ func TestNotFound(t *testing.T) {
 	router := scout.New(mux, layout)
 	router.Path("/missing-with-message").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.NotFound("This page wandered off.")
-	})
+	}).Public()
 	router.Path("/missing-silent").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.NotFound("")
-	})
+	}).Public()
 	router.Path("/missing-chained").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
 		return scout.Respond().Content(fido.String("A friendlier hint could go here.")).NotFound("")
-	})
+	}).Public()
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
