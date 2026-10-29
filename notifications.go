@@ -42,9 +42,20 @@ func loadFlashes(w http.ResponseWriter, r *http.Request) *Flashes {
 	if err := flash.Decode(cookie.Value); err != nil {
 		return NewFlash()
 	}
-	// Consume urgent messages by removing the cookie
-	cookie.MaxAge = -1
-	http.SetCookie(w, cookie)
+	// Consume urgent messages by removing the cookie with Path=/
+	clearCookie := &http.Cookie{
+		Name:     FlashCookieName,
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	}
+	if w != nil {
+		http.SetCookie(w, clearCookie)
+	}
 	return flash
 }
 func (f *Flashes) Add(msg string, ugency Urgency, expiry ...int) {
@@ -94,6 +105,19 @@ func (f *Flashes) Save(w http.ResponseWriter) error {
 }
 func (f *Flashes) Clear(w http.ResponseWriter) {
 	*f = Flashes{}
+	if w != nil {
+		clearCookie := &http.Cookie{
+			Name:     FlashCookieName,
+			Value:    "",
+			Path:     "/",
+			Expires:  time.Unix(0, 0),
+			MaxAge:   -1,
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+		}
+		http.SetCookie(w, clearCookie)
+	}
 }
 
 // Encode the flash struct to base64 to store in a cookie

@@ -456,3 +456,177 @@ func TestPostRedirectGet(t *testing.T) {
 		t.Errorf("expected second GET response body to NOT contain flash %q, but it did: %q", expectedFlashHtml, body2)
 	}
 }
+
+func TestSecured(t *testing.T) {
+	mux := http.NewServeMux()
+	router := scout.New(mux, layout)
+	loginGuard := func(w http.ResponseWriter, r *http.Request) *scout.Response {
+		return nil // allow
+	}
+	router.Path("/secret").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
+		return scout.Content(fido.String("classified"))
+	}).Secured(loginGuard)
+	router.Path("/login").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
+		return scout.Content(fido.String("please log in"))
+	}).Public()
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	// Undenied: guard allows (returns nil) and the handler runs.
+	testRoute(server, "GET", "/secret", ExpectedResponse{
+		Body:    `<layout><flashes></flashes>classified</layout>`,
+		Code:    http.StatusOK,
+		Headers: map[string]string{},
+	}, t)
+	if err := router.CheckAuth(); err != nil {
+		t.Errorf("expected all routes declared, got: %v", err)
+	}
+}
+
+func TestSecuredDeny(t *testing.T) {
+	mux := http.NewServeMux()
+	router := scout.New(mux, layout)
+	router.Path("/secret").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
+		return scout.Content(fido.String("classified"))
+	}).Secured(func(w http.ResponseWriter, r *http.Request) *scout.Response {
+		resp := scout.Redirect("/login")
+		return &resp
+	})
+	router.Path("/login").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
+		return scout.Content(fido.String("please log in"))
+	}).Public()
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	testRoute(server, "GET", "/secret", ExpectedResponse{
+		Body: "<a href=\"/login\">See Other</a>.\n\n",
+		Code: http.StatusSeeOther,
+		Headers: map[string]string{
+			"Location": "/login",
+		},
+	}, t)
+}
+
+func TestStrictAuthUndeclaredRouteDenied(t *testing.T) {
+	mux := http.NewServeMux()
+	router := scout.New(mux, layout)
+	router.Path("/declared-public").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
+		return scout.Content(fido.String("open to everyone"))
+	}).Public()
+	router.Path("/declared-secret").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
+		return scout.Content(fido.String("classified"))
+	}).Secured(func(w http.ResponseWriter, r *http.Request) *scout.Response {
+		resp := scout.Content(fido.String("denied by guard"))
+		return &resp
+	})
+	router.Path("/forgot-to-declare").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
+		return scout.Content(fido.String("should never render"))
+	})
+	router.StrictAuth()
+	if err := router.CheckAuth(); err == nil {
+		t.Error("expected CheckAuth to flag the undeclared route")
+	} else if !strings.Contains(err.Error(), "/forgot-to-declare") {
+		t.Errorf("expected error to name the undeclared route, got: %v", err)
+	}
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	// Declared routes still work.
+	testRoute(server, "GET", "/declared-public", ExpectedResponse{
+		Body:    `<layout><flashes></flashes>open to everyone</layout>`,
+		Code:    http.StatusOK,
+		Headers: map[string]string{},
+	}, t)
+	// Undeclared route is denied without ever calling its handler.
+	testRoute(server, "GET", "/forgot-to-declare", ExpectedResponse{
+		Body:    `<layout><flashes><flash class="error">This page is not configured for public access.</flash></flashes><div class="content"></div></layout>`,
+		Code:    http.StatusForbidden,
+		Headers: map[string]string{},
+	}, t)
+}
+
+func TestPublicRequiredWithoutStrict(t *testing.T) {
+	// Without StrictAuth, undeclared routes keep working (back-compat mode),
+	// but CheckAuth still reports them.
+	mux := http.NewServeMux()
+	router := scout.New(mux, layout)
+	router.Path("/legacy").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
+		return scout.Content(fido.String("legacy behavior"))
+	})
+	router.Path("/declared").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
+		return scout.Content(fido.String("declared"))
+	}).Public()
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	testRoute(server, "GET", "/legacy", ExpectedResponse{
+		Body:    `<layout><flashes></flashes>legacy behavior</layout>`,
+		Code:    http.StatusOK,
+		Headers: map[string]string{},
+	}, t)
+	err := router.CheckAuth()
+	if err == nil {
+		t.Error("expected CheckAuth to flag the undeclared route")
+	} else if !strings.Contains(err.Error(), "/legacy") || strings.Contains(err.Error(), "/declared") {
+		t.Errorf("unexpected CheckAuth result: %v", err)
+	}
+}
+
+func TestNotFound(t *testing.T) {
+	mux := http.NewServeMux()
+	router := scout.New(mux, layout)
+	router.Path("/missing-with-message").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
+		return scout.NotFound("This page wandered off.")
+	})
+	router.Path("/missing-silent").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
+		return scout.NotFound("")
+	})
+	router.Path("/missing-chained").Get(func(w http.ResponseWriter, r *http.Request) scout.Response {
+		return scout.Respond().Content(fido.String("A friendlier hint could go here.")).NotFound("")
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	// 404 with a message: error flash rendered by the layout
+	resp, err := http.Get(server.URL + "/missing-with-message")
+	if err != nil {
+		t.Fatalf("failed to perform GET request: %v", err)
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(resp.Body); err != nil {
+		t.Fatalf("failed to read response body: %v", err)
+	}
+	expectedFlashHtml := "<flash class=\"error\">This page wandered off.</flash>"
+	if !strings.Contains(buf.String(), expectedFlashHtml) {
+		t.Errorf("expected response body to contain %q, got %q", expectedFlashHtml, buf.String())
+	}
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected status code %d, got %d", http.StatusNotFound, resp.StatusCode)
+	}
+
+	// Silent 404: no flash, still 404
+	resp2, err := http.Get(server.URL + "/missing-silent")
+	if err != nil {
+		t.Fatalf("failed to perform GET request: %v", err)
+	}
+	defer resp2.Body.Close()
+	buf2 := new(bytes.Buffer)
+	if _, err := buf2.ReadFrom(resp2.Body); err != nil {
+		t.Fatalf("failed to read response body: %v", err)
+	}
+	if strings.Contains(buf2.String(), "<flash ") {
+		t.Errorf("expected silent 404 to not render a flash, got %q", buf2.String())
+	}
+	if resp2.StatusCode != http.StatusNotFound {
+		t.Errorf("expected status code %d for silent 404, got %d", http.StatusNotFound, resp2.StatusCode)
+	}
+
+	// Chained NotFound flips the status code but keeps the content
+	testRoute(server, "GET", "/missing-chained", ExpectedResponse{
+		Body:    "<layout><flashes></flashes>A friendlier hint could go here.</layout>",
+		Code:    http.StatusNotFound,
+		Headers: map[string]string{},
+	}, t)
+}
