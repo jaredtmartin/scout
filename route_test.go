@@ -634,3 +634,52 @@ func TestNotFound(t *testing.T) {
 		Headers: map[string]string{},
 	}, t)
 }
+
+func TestDevOnly(t *testing.T) {
+	mux := http.NewServeMux()
+	router := scout.New(mux, layout)
+
+	devHandler := func(w http.ResponseWriter, r *http.Request) scout.Response {
+		return scout.Content(fido.Div("dev tools"))
+	}
+
+	router.Path("/dev-tools").Get(devHandler).DevOnly()
+
+	// DevOnly satisfies CheckAuth() as an affirmative declaration
+	if err := router.CheckAuth(); err != nil {
+		t.Fatalf("expected CheckAuth to pass for DevOnly routes, got: %v", err)
+	}
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	// 1. By default, DevMode is disabled -> returns 404 Not Found
+	resp, err := http.Get(server.URL + "/dev-tools")
+	if err != nil {
+		t.Fatalf("failed GET request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 in non-dev mode, got: %d", resp.StatusCode)
+	}
+
+	// 2. Enable DevMode -> returns 200 OK with content
+	router.DevMode(true)
+	if !router.IsDevMode() {
+		t.Fatalf("expected router.IsDevMode() to be true")
+	}
+
+	resp2, err := http.Get(server.URL + "/dev-tools")
+	if err != nil {
+		t.Fatalf("failed GET request: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 in dev mode, got: %d", resp2.StatusCode)
+	}
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp2.Body)
+	if !strings.Contains(buf.String(), "dev tools") {
+		t.Fatalf("expected response body to contain 'dev tools', got: %s", buf.String())
+	}
+}

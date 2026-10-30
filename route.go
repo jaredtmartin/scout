@@ -33,6 +33,7 @@ type PathType struct {
 	guard    GuardFunc
 	public   bool
 	declared bool
+	devOnly  bool
 }
 
 type Response struct {
@@ -157,6 +158,19 @@ type Router struct {
 	Mux          *http.ServeMux
 	verbose      bool
 	defaultGuard GuardFunc
+	devMode      bool
+}
+
+// DevMode enables or disables development mode for the router.
+// When disabled (default), routes marked with DevOnly() will return HTTP 404 Not Found.
+func (router *Router) DevMode(enabled bool) *Router {
+	router.devMode = enabled
+	return router
+}
+
+// IsDevMode reports whether development mode is enabled on the router.
+func (router *Router) IsDevMode() bool {
+	return router.devMode
 }
 
 // DefaultGuard sets a router-wide guard that is enforced on every route that
@@ -239,6 +253,17 @@ func (r *PathType) Public() *PathType {
 	return r
 }
 
+// DevOnly marks this path as available only when the router has DevMode(true) enabled.
+// In non-dev environments (such as production), requests to this path will return HTTP 404 Not Found.
+// Like Public(), this is an affirmative access declaration and satisfies router.CheckAuth().
+func (r *PathType) DevOnly() *PathType {
+	r.declared = true
+	r.devOnly = true
+	r.public = true
+	r.guard = nil
+	return r
+}
+
 // Secured marks this path as authentication-protected and installs the guard
 // that decides per-request access. The guard returns nil to allow, or a
 // deny Response (e.g. a redirect to the login page).
@@ -308,6 +333,11 @@ func (router *Router) renderResponse(w http.ResponseWriter, r *http.Request, res
 }
 
 func pathHandler(w http.ResponseWriter, r *http.Request, router *Router, methods *PathType) {
+	if methods.devOnly && !router.devMode {
+		router.renderResponse(w, r, Respond().NotFound("Page not found"))
+		return
+	}
+
 	// Default-deny: unless a route explicitly opted into Public(), auth is enforced.
 	if !methods.public {
 		guard := methods.guard
