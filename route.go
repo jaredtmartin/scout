@@ -255,12 +255,18 @@ func (r *PathType) Public() *PathType {
 
 // DevOnly marks this path as available only when the router has DevMode(true) enabled.
 // In non-dev environments (such as production), requests to this path will return HTTP 404 Not Found.
-// Like Public(), this is an affirmative access declaration and satisfies router.CheckAuth().
-func (r *PathType) DevOnly() *PathType {
+// An optional guard can be provided; if provided, it will be enforced when in DevMode.
+// DevOnly is an affirmative access declaration and satisfies router.CheckAuth().
+func (r *PathType) DevOnly(guard ...GuardFunc) *PathType {
 	r.declared = true
 	r.devOnly = true
-	r.public = true
-	r.guard = nil
+	if len(guard) > 0 && guard[0] != nil {
+		r.public = false
+		r.guard = guard[0]
+	} else {
+		r.public = true
+		r.guard = nil
+	}
 	return r
 }
 
